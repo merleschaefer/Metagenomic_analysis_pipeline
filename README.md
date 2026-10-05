@@ -12,6 +12,7 @@ Scripts I used for plotting have been included. Please note, however, that these
 - Bracken (https://github.com/jenniferlu717/Bracken ; DOI: 10.7717/peerj-cs.104)
 - MultiQC (https://github.com/multiqc/multiqc ; DOI: 10.1093/bioinformatics/btw354)
 - samtools (https://github.com/samtools/samtools ; DOI: 10.1093/gigascience/giab008)
+- bedtools (https://github.com/arq5x/bedtools2; DOI:10.1093/bioinformatics/btq033)
 
 ## License
 The code provided within this repository is provided under the MIT License.
