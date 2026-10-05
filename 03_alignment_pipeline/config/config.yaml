@@ -1,0 +1,26 @@
+# ── External inputs you must provide (not produced by this pipeline) ──────
+
+# Directory containing host-removed, paired FASTQ files named
+# "{sample}_hostremoved_1.fq.gz" / "{sample}_hostremoved_2.fq.gz"
+fq_dir: "/path/to/fastq"
+
+# Reference FASTA of the virus set to align/screen against (e.g. HHV + anello)
+virus_ref: "/path/to/fastaset.fasta"
+
+# Text file, one accession/contig identifier per line, used to subset the
+# merged BAM before computing per-base depth (calculate_coverage step)
+accessions: "/path/to/identifiers.txt"
+
+# CSV with at least columns: identifier,species — used only for plot labels
+contig_names: "/path/to/contig_name.csv"
+
+# ── Pipeline behaviour ─────────────────────────────────────────────────────
+outdir: "results"
+threads: 10
+#window size for flagging high coverage regions
+window_size: 150
+
+# samtools view filter expression used in the "filter" step
+filter_expr: "sclen<=10 && rlen>=130 && rnext==rname"
+min_mapq: 1
+require_flag: 1

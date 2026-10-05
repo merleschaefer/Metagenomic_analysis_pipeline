@@ -1,0 +1,2 @@
+tool,db_name,db_params,db_type,db_path
+bracken,minusb,--paired --confidence 0.2;-t 1,short,./k2_minusb_20260226.tar.gz

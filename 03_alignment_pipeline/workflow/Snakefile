@@ -1,0 +1,196 @@
+import os
+
+configfile: "config/config.yaml"
+SCRIPT_DIR = os.path.join(os.path.dirname(workflow.snakefile), "scripts")
+
+# ── Config shortcuts ──────────────────────────────────────────────────────
+FQ_DIR       = config["fq_dir"]
+VIRUS_REF    = config["virus_ref"]
+ACCESSIONS   = config["accessions"]
+CONTIG_NAMES = config["contig_names"]
+OUTDIR       = config["outdir"]
+THREADS      = config["threads"]
+WINDOW_SIZE  = config["window_size"]
+FILTER_EXPR  = config["filter_expr"]
+MIN_MAPQ     = config["min_mapq"]
+REQUIRE_FLAG = config["require_flag"]
+
+# ── Sample discovery ──────────────────────────────────────────────────────
+# Mirrors: for FQ1 in "$FQ_DIR"/*_hostremoved_1.fq.gz
+SAMPLES = glob_wildcards(os.path.join(FQ_DIR, "{sample}_hostremoved_1.fq.gz")).sample
+if not SAMPLES:
+    raise ValueError(
+        f"No samples found in {FQ_DIR} matching '*_hostremoved_1.fq.gz'. "
+        "Check config['fq_dir']."
+    )
+
+# "bam names" that filter.sh operates on: every per-sample bam PLUS the merged one
+BAM_NAMES = SAMPLES + ["merged"]
+
+WS_DIR = f"high_coverage_regions_ws{WINDOW_SIZE}"
+
+
+# ── Final targets ─────────────────────────────────────────────────────────
+rule all:
+    input:
+        os.path.join(OUTDIR, "final_read_counts.tsv"),
+        os.path.join(OUTDIR, "insert_sizes.txt"),
+        os.path.join(OUTDIR, "filtered", WS_DIR, "flagged_regions.fasta"),
+        os.path.join(OUTDIR, "filtered", "coverage_plot_flagged_regions.png"),
+        os.path.join(OUTDIR, "filtered", "coverage_plot_flagged_regions.svg"),
+        expand(
+            os.path.join(OUTDIR, "final_no_high_coverage_with_dups", "{sample}.clean.bam"),
+            sample=SAMPLES,
+        ),
+
+
+# ── 0a. Reference indexing (bwa-mem2) ──────────────────────────────────────
+rule bwa_index:
+    input:
+        ref=VIRUS_REF,
+    output:
+        multiext(VIRUS_REF, ".0123", ".amb", ".ann", ".bwt.2bit.64", ".pac"),
+    log:
+        "logs/bwa_index.log",
+    shell:
+        "bash " + SCRIPT_DIR + "/0a_bwa_index.sh {input.ref} > {log} 2>&1"
+
+
+# ── 0b. FASTA index (needed later by flag_high_coverage_regions) ─────────
+rule samtools_faidx_ref:
+    input:
+        ref=VIRUS_REF,
+    output:
+        VIRUS_REF + ".fai",
+    shell:
+        "bash " + SCRIPT_DIR + "/0b_faidx_ref.sh {input.ref}"
+
+
+# ── 1. Alignment + per-sample BAM processing ──────────────────────────────
+rule align_and_process:
+    # Replaces the per-sample loop body of Run_pipeline.sh:
+    # bwa-mem2 mem -> read renaming -> namesort -> fixmate -> coordsort -> markdup
+    input:
+        fq1=os.path.join(FQ_DIR, "{sample}_hostremoved_1.fq.gz"),
+        fq2=os.path.join(FQ_DIR, "{sample}_hostremoved_2.fq.gz"),
+        ref=VIRUS_REF,
+        index=rules.bwa_index.output,
+    output:
+        bam=os.path.join(OUTDIR, "bam", "{sample}.bam"),
+        bai=os.path.join(OUTDIR, "bam", "{sample}.bam.bai"),
+    threads: THREADS
+    log:
+        "logs/align_{sample}.log",
+    shell:
+        "bash " + SCRIPT_DIR + "/1_align_and_process.sh {input.fq1} {input.fq2} {input.ref} "
+        "{threads} {wildcards.sample} {output.bam} > {log} 2>&1"
+
+
+# ── 2. Merge all per-sample BAMs ──────────────────────────────────────────
+rule merge_bam:
+    input:
+        bams=expand(os.path.join(OUTDIR, "bam", "{sample}.bam"), sample=SAMPLES),
+    output:
+        bam=os.path.join(OUTDIR, "bam", "merged.bam"),
+        bai=os.path.join(OUTDIR, "bam", "merged.bam.bai"),
+    threads: THREADS
+    shell:
+        "bash " + SCRIPT_DIR + "/2_merge_bam.sh {threads} {output.bam} {input.bams}"
+
+
+# ── 3. Filtering (applies to every per-sample bam AND the merged bam) ────
+rule filter_bam:
+    input:
+        bam=os.path.join(OUTDIR, "bam", "{name}.bam"),
+    output:
+        bam=os.path.join(OUTDIR, "filtered", "{name}_filtered.bam"),
+        bai=os.path.join(OUTDIR, "filtered", "{name}_filtered.bam.bai"),
+    wildcard_constraints:
+        name="|".join(BAM_NAMES),
+    params:
+        expr=FILTER_EXPR,
+        mapq=MIN_MAPQ,
+        flag=REQUIRE_FLAG,
+    shell:
+        "bash " + SCRIPT_DIR + "/3_filter_bam.sh {input.bam} {output.bam} '{params.expr}' {params.mapq} {params.flag}"
+
+
+# ── 4. Coverage calculation on the merged, filtered BAM ───────────────────
+rule calculate_coverage:
+    input:
+        bam=os.path.join(OUTDIR, "filtered", "merged_filtered.bam"),
+        accessions=ACCESSIONS,
+    output:
+        os.path.join(OUTDIR, "filtered", "coverage_merged.tsv"),
+    shell:
+        "bash " + SCRIPT_DIR + "/4_calculate_coverage.sh {input.bam} {input.accessions} {output}"
+
+
+# ── 5. Flag high-coverage windows (R) ─────────────────────────────────────
+rule flag_high_coverage_regions:
+    input:
+        coverage=os.path.join(OUTDIR, "filtered", "coverage_merged.tsv"),
+        fasta=VIRUS_REF,
+        fai=VIRUS_REF + ".fai",
+    output:
+        csv=os.path.join(OUTDIR, "filtered", WS_DIR, "flagged_regions.csv"),
+        bed=os.path.join(OUTDIR, "filtered", WS_DIR, "flagged_regions.bed"),
+        txt=os.path.join(OUTDIR, "filtered", WS_DIR, "flagged_regions.txt"),
+        fasta_out=os.path.join(OUTDIR, "filtered", WS_DIR, "flagged_regions.fasta"),
+    params:
+        window_size=WINDOW_SIZE,
+    script:
+        "scripts/5_flag_high_coverage_regions.R"
+
+
+# ── 6. Plot coverage + flagged regions (R) ────────────────────────────────
+rule plot_coverage:
+    input:
+        coverage=os.path.join(OUTDIR, "filtered", "coverage_merged.tsv"),
+        contig_names=CONTIG_NAMES,
+        flagged_csv=os.path.join(OUTDIR, "filtered", WS_DIR, "flagged_regions.csv"),
+    output:
+        png=os.path.join(OUTDIR, "filtered", "coverage_plot_flagged_regions.png"),
+        svg=os.path.join(OUTDIR, "filtered", "coverage_plot_flagged_regions.svg"),
+    script:
+        "scripts/6_plot_coverage_flagged_regions.R"
+
+
+# ── 7. Remove reads overlapping flagged high-coverage regions ────────────
+rule remove_flagged_regions:
+    # Only applied to per-sample filtered bams (not to merged_filtered.bam,
+    # which is only an intermediate for coverage calculation).
+    input:
+        bam=os.path.join(OUTDIR, "filtered", "{sample}_filtered.bam"),
+        bed=os.path.join(OUTDIR, "filtered", WS_DIR, "flagged_regions.bed"),
+    output:
+        bam=os.path.join(OUTDIR, "final_no_high_coverage_with_dups", "{sample}.clean.bam"),
+    wildcard_constraints:
+        sample="|".join(SAMPLES),
+    shell:
+        "bash " + SCRIPT_DIR + "/7_remove_flagged_regions.sh {input.bam} {input.bed} {output.bam}"
+
+# ── 8. Read counting (final counts in the fully-cleaned BAMs) ───────────
+rule count_reads:
+    input:
+        bams=expand(
+            os.path.join(OUTDIR, "final_no_high_coverage_with_dups", "{sample}.clean.bam"),
+            sample=SAMPLES,
+        ),
+        accessions=ACCESSIONS,
+    output:
+        os.path.join(OUTDIR, "final_read_counts.tsv"),
+    shell:
+        "bash " + SCRIPT_DIR + "/8_count_reads.sh {output} {input.accessions} {input.bams}"
+
+# ── 9. Insert size extraction (final, cleaned per-sample bams) ────────────
+rule extract_insert_sizes:
+    input:
+        bams=expand(
+            os.path.join(OUTDIR, "final_no_high_coverage_with_dups", "{sample}.clean.bam"),
+            sample=SAMPLES,
+        ),
+    output:
+        os.path.join(OUTDIR, "insert_sizes.txt"),
+    shell:
+        "bash " + SCRIPT_DIR + "/9_extract_insert_sizes.sh {output} {input.bams}"
