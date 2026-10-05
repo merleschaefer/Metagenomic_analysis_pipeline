@@ -1,6 +1,6 @@
-## Scripts for taxonomic classification using the nf-core/taxprofiler
+# Scripts for taxonomic classification using the nf-core/taxprofiler
 
-# requirements pipeline
+## requirements pipeline
 As this is a nextflow-based pipeline you will require nextflow in your environment. For information on how to set this up visit: https://nf-co.re/docs/get_started/environment_setup/nextflow
 
 The pipeline requires a seperate databasesheet.csv as well as a samplesheet.csv.
@@ -14,7 +14,7 @@ The samplesheet.csv gives information on which samples should be analysed and wh
 
 Once both the databasesheet.csv and the samplesheet.csv are created and the database is downloaded, the pipeline can be run using the script Run_pipeline.sh
 
-# analyses of results
+## analyses of results
 Scripts for the creation of heatmaps for the analyses of Bracken results are included under ./analyses_of_results. Note that both scripts are made specifically to match the results in my thesis. For general usage they need to be adjusted. 
 The text file viral_taxids.txt is used to filter out results non-viral results. It was created based on NCBI taxonomy (like the database used in Kraken2) using taxonkit and taxdump and includes all taxids belonging to the "Viruses" superkingdom:
 
@@ -28,7 +28,7 @@ tar -xzf taxdump.tar.gz -C ~/.taxonkit
 taxonkit list -i 10239 --indent "" > viral_taxids.txt
 ```
 
-# creation of a combined fasta for alignment-based analyses
+## creation of a combined fasta for alignment-based analyses
 Based on the results from taxonomic classification and viruses commonly found in the sample type, contigs can be chosen to be included in the fasta for alignment. For the thesis this included the fasta provided by SCANellome for Anellovirus references, RefSeq sequences of all Human infecting herpesviridae as well as four additional viruses found during classification after the first sequencing run (likely contamination, false positives) and the ReSeq sequence for Monkeypox (synthetic monkeypox DNA was spiked-in during experiments as a positive control).
 All individual fastas were downloaded into a shared folder and combined using:
 
