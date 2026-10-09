@@ -16,6 +16,8 @@ A plot showing the coverage depth per viral genome as well as flaggged regions i
 Set all four paths in `config.yaml`. Samples are auto-detected from whatever
 `*_hostremoved_1.fq.gz` files are in `fq_dir` — you don't list them manually.
 
+The FASTA files as well as identifiers.txt and contig_name.csv used in my thesis are provided under /data. They consist of RefSeq sequences of selected viruses (e.g. herpesviruses) and the SCANellome V2 FASTA database (https://github.com/Laubscher/Anelloviruses; doi: 10.3390/v15071575)
+
 ## Software needed
 
 Easiest: build the conda/mamba environment included here:
